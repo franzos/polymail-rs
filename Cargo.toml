@@ -1,0 +1,26 @@
+[package]
+name = "polymail"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Unified email sending interface for multiple providers"
+repository = "https://github.com/franzos/polymail-rs"
+homepage = "https://github.com/franzos/polymail-rs"
+documentation = "https://docs.rs/polymail"
+keywords = ["email", "e-mail", "sendgrid", "postmark", "lettermint"]
+categories = ["api-bindings", "email"]
+exclude = ["manifest.scm"]
+
+[features]
+default = ["lettermint"]
+postmark = ["dep:postmark"]
+lettermint = ["dep:lettermint"]
+sendgrid = ["dep:sendgrid"]
+
+[dependencies]
+async-trait = "0.1"
+thiserror = "2.0"
+
+postmark = { version = "1.0", features = ["reqwest"], optional = true }
+lettermint = { version = "0.2", features = ["reqwest"], optional = true }
+sendgrid = { version = "0.27", optional = true }
