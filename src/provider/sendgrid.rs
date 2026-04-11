@@ -42,6 +42,10 @@ impl SendgridMailer {
             sender: v3::Sender::new(&key, None),
         }
     }
+
+    pub fn with_sender(sender: v3::Sender<'static>) -> Self {
+        Self { sender }
+    }
 }
 
 fn to_sg_email(addr: &crate::email::Address) -> v3::Email<'_> {
