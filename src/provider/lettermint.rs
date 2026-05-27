@@ -155,8 +155,8 @@ impl Mailer for LettermintMailer {
         }
 
         let requests: Vec<SendEmailRequest> = emails.iter().map(to_request).collect();
-        let batch = BatchSendRequest::new(requests)
-            .ok_or_else(|| SendError::Provider("failed to create batch request".into()))?;
+        let batch =
+            BatchSendRequest::new(requests).map_err(|e| SendError::Provider(e.to_string()))?;
 
         let responses = batch
             .execute(&self.client)
