@@ -114,6 +114,23 @@ let mailer = PostmarkMailer::new("your-server-token");
 // Same Email, same .send() call — just a different mailer.
 ```
 
+### Custom HTTP client
+
+The Lettermint mailer can take a caller-supplied `reqwest::Client`, so you can share a connection pool or set your own timeouts, proxy, or TLS. Note that reqwest majors must match: polymail is on `reqwest` 0.13, same as lettermint.
+
+```rust,ignore
+use polymail::provider::lettermint::LettermintMailer;
+
+let http = reqwest::Client::builder()
+    .timeout(std::time::Duration::from_secs(60))
+    .build()
+    .unwrap();
+
+let mailer = LettermintMailer::with_reqwest_client("your-api-token", http);
+```
+
+The other providers can't take a bare `reqwest::Client`: SendGrid requires the auth header baked into the client at build time (build the `Sender` yourself and pass it to `SendgridMailer::with_sender`), Postmark keeps its reqwest client private (pass a built `PostmarkClient` to `PostmarkMailer::with_client`), and SMTP uses lettre, not reqwest.
+
 ### SMTP (any server)
 
 The `smtp` feature sends through any SMTP server via lettre. Pick the transport security with `SmtpTls` (`Implicit` for port 465, `StartTls` for 587, `None` for plaintext).

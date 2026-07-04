@@ -69,6 +69,14 @@ impl LettermintMailer {
     pub fn with_client(client: LettermintClient) -> Self {
         Self { client }
     }
+
+    /// Build a mailer from an API token and a caller-supplied `reqwest::Client`,
+    /// e.g. to share a connection pool or set custom timeouts, proxy, or TLS.
+    pub fn with_reqwest_client(api_token: impl Into<String>, client: reqwest::Client) -> Self {
+        Self {
+            client: LettermintClient::with_reqwest_client(api_token.into(), client),
+        }
+    }
 }
 
 fn to_strings(addrs: &[crate::email::Address]) -> Option<Vec<String>> {

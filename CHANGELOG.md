@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.4] - 2026-07-04
+
+### Added
+- Inject a custom `reqwest::Client` into the Lettermint mailer
+
 ## [0.1.3] - 2026-07-04
 
 ### Added

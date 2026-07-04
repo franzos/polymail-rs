@@ -1,6 +1,6 @@
 [package]
 name = "polymail"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Unified email sending interface for multiple providers"
@@ -14,7 +14,7 @@ exclude = ["manifest.scm"]
 [features]
 default = ["lettermint"]
 postmark = ["dep:postmark"]
-lettermint = ["dep:lettermint"]
+lettermint = ["dep:lettermint", "dep:reqwest"]
 sendgrid = ["dep:sendgrid"]
 smtp = ["dep:lettre", "dep:base64"]
 
@@ -25,6 +25,7 @@ thiserror = "2.0"
 postmark = { version = "2.0", features = ["reqwest-rustls-tls"], optional = true }
 lettermint = { version = "0.3", features = ["reqwest-rustls"], optional = true }
 sendgrid = { version = "0.27", optional = true }
+reqwest = { version = "0.13", default-features = false, optional = true }
 lettre = { version = "0.11", default-features = false, features = [
     "tokio1-rustls-tls",
     "builder",
@@ -35,5 +36,5 @@ base64 = { version = "0.22", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros", "time"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 serde_json = "1"
