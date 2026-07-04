@@ -6,7 +6,7 @@
 
 Unified email sending interface for Rust. Write your email once, send it through any supported provider — swap providers by changing one line.
 
-Currently supported: [Lettermint](https://lettermint.co), [Postmark](https://postmarkapp.com), [SendGrid](https://sendgrid.com).
+Currently supported: [Lettermint](https://lettermint.co), [Postmark](https://postmarkapp.com), [SendGrid](https://sendgrid.com), and any SMTP server (via [lettre](https://github.com/lettre/lettre)).
 
 ## Usage
 
@@ -114,6 +114,36 @@ let mailer = PostmarkMailer::new("your-server-token");
 // Same Email, same .send() call — just a different mailer.
 ```
 
+### SMTP (any server)
+
+The `smtp` feature sends through any SMTP server via lettre. Pick the transport security with `SmtpTls` (`Implicit` for port 465, `StartTls` for 587, `None` for plaintext).
+
+```rust,ignore
+use polymail::{Email, Body, Mailer};
+use polymail::provider::smtp::{SmtpMailer, SmtpTls};
+
+async fn send_smtp() {
+    // Production relay with STARTTLS + auth:
+    let mailer = SmtpMailer::builder("smtp.example.com")
+        .tls(SmtpTls::StartTls)
+        .credentials("user", "pass")
+        .build()
+        .unwrap();
+
+    // Or a local sink for testing (plaintext, no auth), e.g. mailcrab or MailHog:
+    let mailer = SmtpMailer::plaintext("localhost", 1025);
+
+    let email = Email::builder("sender@example.com", "Hello", Body::Text("Hi there!".into()))
+        .to("recipient@example.com")
+        .build()
+        .unwrap();
+
+    mailer.send(&email).await.unwrap();
+}
+```
+
+For custom trust roots, pool tuning, or alternate auth mechanisms, build a `lettre` `AsyncSmtpTransport` yourself and pass it to `SmtpMailer::with_transport`.
+
 ### Fallback across providers
 
 `FallbackMailer` tries providers in order. On transient failures (network issues, rate limits, service outages), it moves to the next provider. On permanent failures (invalid address, hard bounce), it returns immediately — retrying won't help.
@@ -121,14 +151,20 @@ let mailer = PostmarkMailer::new("your-server-token");
 ```rust,ignore
 use polymail::{FallbackMailer, Mailer};
 use polymail::provider::lettermint::LettermintMailer;
-use polymail::provider::postmark::PostmarkMailer;
+use polymail::provider::smtp::{SmtpMailer, SmtpTls};
 
 let mailer = FallbackMailer::new(vec![
     Box::new(LettermintMailer::new("lettermint-token")),
-    Box::new(PostmarkMailer::new("postmark-token")),
+    Box::new(
+        SmtpMailer::builder("smtp.example.com")
+            .tls(SmtpTls::StartTls)
+            .credentials("user", "pass")
+            .build()?,
+    ),
 ]);
 
-// Tries Lettermint first; if it's down, sends through Postmark.
+// Tries the Lettermint API first; if it's down (or rate-limited),
+// falls back to your own SMTP relay.
 let result = mailer.send(&email).await?;
 ```
 
@@ -166,6 +202,7 @@ fn get_mailer() -> Box<dyn Mailer> {
 | `lettermint` | yes | Lettermint provider |
 | `postmark` | no | Postmark provider |
 | `sendgrid` | no | SendGrid provider |
+| `smtp` | no | SMTP provider (any server, via lettre) |
 
 Enable multiple providers at once:
 
@@ -175,16 +212,22 @@ polymail = { version = "0.1", features = ["lettermint", "postmark"] }
 
 ## Provider capabilities
 
-| Capability | Lettermint | Postmark | SendGrid |
-|---|---|---|---|
-| Single send | yes | yes | yes |
-| Batch send (native) | yes (up to 500) | yes (up to 500) | no (sequential fallback) |
-| Attachments | yes | yes | yes |
-| Inline attachments | yes | yes | yes |
-| Custom headers | yes | yes | yes (per-personalization) |
-| Multiple reply-to | yes | first only | first only |
-| Tags | first tag | first tag | multiple (categories) |
-| Metadata | yes | yes | yes (as custom args) |
+| Capability | Lettermint | Postmark | SendGrid | SMTP |
+|---|---|---|---|---|
+| Single send | yes | yes | yes | yes |
+| Batch send (native) | yes (up to 500) | yes (up to 500) | no (sequential fallback) | no (sequential fallback) |
+| Attachments | yes | yes | yes | yes |
+| Inline attachments | yes | yes | yes | yes |
+| Custom headers | yes | yes | yes (per-personalization) | yes |
+| Multiple reply-to | yes | first only | first only | first only |
+| Tags | first tag | first tag | multiple (categories) | - |
+| Metadata | yes | yes | yes (as custom args) | - |
+
+SMTP has no side channel for tags or metadata: anything added would become recipient-visible headers logged by every relay in between, so both are dropped. Explicit `.header(...)` values are still sent.
+
+Batch size for SMTP is unbounded by polymail (sends are sequential over one pooled connection), but real servers may throttle or greylist after N messages per session.
+
+The `smtp` feature uses rustls with bundled webpki-roots, not the system trust store. For corporate or system CAs, build your own `AsyncSmtpTransport` and pass it to `SmtpMailer::with_transport`.
 
 ## Error handling
 
@@ -204,23 +247,37 @@ match mailer.send(&email).await {
 
 ### Error mapping by provider
 
-| `SendError` | Postmark | Lettermint | SendGrid |
-|---|---|---|---|
-| `Authentication` | — | HTTP 401/403 | HTTP 401/403 |
-| `InvalidAddress` | error code 300 | HTTP 422 (validation) | HTTP 400 |
-| `InactiveRecipient` | error code 406 | batch status | — |
-| `SpamComplaint` | error code 409 | batch status | — |
-| `HardBounce` | error code 422 | batch status | — |
-| `RateLimitExceeded` | error code 429 | HTTP 429 | HTTP 429 |
-| `ServiceUnavailable` | error codes 500–504 | HTTP 5xx | HTTP 500–504 |
-| `Provider` | transport errors | transport/parse errors | transport/parse errors |
-| `Api` | other error codes | other HTTP errors | other HTTP errors |
+| `SendError` | Postmark | Lettermint | SendGrid | SMTP |
+|---|---|---|---|---|
+| `Authentication` | — | HTTP 401/403 | HTTP 401/403 | reply 535/530/534/538/454 |
+| `InvalidAddress` | error code 300 | HTTP 422 (validation) | HTTP 400 | local address parse failure |
+| `InactiveRecipient` | error code 406 | batch status | — | — |
+| `SpamComplaint` | error code 409 | batch status | — | — |
+| `HardBounce` | error code 422 | batch status | — | reply 550/551/553 |
+| `RateLimitExceeded` | error code 429 | HTTP 429 | HTTP 429 | — |
+| `ServiceUnavailable` | error codes 500–504 | HTTP 5xx | HTTP 500–504 | other 4xx replies |
+| `Provider` | transport errors | transport/parse errors | transport/parse errors | connection/TLS/timeout |
+| `Api` | other error codes | other HTTP errors | other HTTP errors | other 5xx replies |
+| `Serialization` | — | — | — | bad base64 / invalid header name |
 
 ## Testing
 
 ```sh
 cargo test --all-features
 ```
+
+The SMTP provider also has integration tests that send through a real SMTP
+server and assert delivery via its API. They are `#[ignore]`-d by default; CI
+runs them against a [mailcrab](https://github.com/tweedegolf/mailcrab) service
+container. To run them locally, start mailcrab and point the tests at it:
+
+```sh
+docker run --rm -p 1025:1025 -p 1080:1080 marlonb/mailcrab
+cargo test --features smtp -- --ignored
+```
+
+Override the defaults with `POLYMAIL_SMTP_HOST` / `POLYMAIL_SMTP_PORT` (SMTP) and
+`POLYMAIL_MAILCRAB_API` (mailcrab HTTP API base) if the server is elsewhere.
 
 ## License
 

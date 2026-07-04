@@ -31,6 +31,26 @@ jobs:
       - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
       - run: cargo test --all-features
 
+  smtp:
+    runs-on: ubuntu-latest
+    services:
+      mailcrab:
+        image: marlonb/mailcrab:v1.7.0
+        ports:
+          - 1025:1025
+          - 1080:1080
+        options: >-
+          --health-cmd "wget -q -O - http://localhost:1080/api/messages || exit 1"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+          --health-start-period 5s
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+      # Runs the #[ignore]-d SMTP tests (unit + integration) against mailcrab.
+      - run: cargo test --features smtp -- --ignored
+
   fmt:
     runs-on: ubuntu-latest
     steps:
