@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.5] - 2026-07-05
+
+### Added
+- Lettermint on reqwest 0.12 via the `lettermint-reqwest-012` feature
+
+### Changed
+- `with_reqwest_client` takes the version-agnostic `backend::Client`
+
 ## [0.1.4] - 2026-07-04
 
 ### Added

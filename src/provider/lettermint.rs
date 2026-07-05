@@ -6,6 +6,11 @@ use lettermint::api::email::{
 };
 use lettermint::reqwest::{LettermintClient, LettermintClientError};
 
+/// The `reqwest` crate this build is compiled against (0.13 by default, 0.12 via
+/// the `lettermint-reqwest-012` feature). Re-exported so callers of
+/// [`LettermintMailer::with_reqwest_client`] can name the matching client type.
+pub use lettermint::reqwest::backend;
+
 use crate::email::{Body, Email};
 use crate::error::SendError;
 use crate::mailer::{BatchItemResult, Mailer, SendResult};
@@ -70,9 +75,11 @@ impl LettermintMailer {
         Self { client }
     }
 
-    /// Build a mailer from an API token and a caller-supplied `reqwest::Client`,
+    /// Build a mailer from an API token and a caller-supplied [`backend::Client`],
     /// e.g. to share a connection pool or set custom timeouts, proxy, or TLS.
-    pub fn with_reqwest_client(api_token: impl Into<String>, client: reqwest::Client) -> Self {
+    ///
+    /// The client's reqwest version must match this build's backend (see [`backend`]).
+    pub fn with_reqwest_client(api_token: impl Into<String>, client: backend::Client) -> Self {
         Self {
             client: LettermintClient::with_reqwest_client(api_token.into(), client),
         }

@@ -12,11 +12,11 @@ Currently supported: [Lettermint](https://lettermint.co), [Postmark](https://pos
 
 ```toml
 [dependencies]
-polymail = { version = "0.1", features = ["lettermint"] }
+polymail = { version = "0.1" }
 tokio = { version = "1", features = ["rt", "macros"] }
 ```
 
-Lettermint is the default feature, so `features = ["lettermint"]` can be omitted.
+The Lettermint provider on reqwest 0.13 is the default, so no `features` are needed for it. See [Features](#features) to switch to reqwest 0.12 or enable other providers.
 
 ### Send an email
 
@@ -116,12 +116,12 @@ let mailer = PostmarkMailer::new("your-server-token");
 
 ### Custom HTTP client
 
-The Lettermint mailer can take a caller-supplied `reqwest::Client`, so you can share a connection pool or set your own timeouts, proxy, or TLS. Note that reqwest majors must match: polymail is on `reqwest` 0.13, same as lettermint.
+The Lettermint mailer can take a caller-supplied reqwest client, so you can share a connection pool or set your own timeouts, proxy, or TLS. The client version must match the backend this build selected. Use the re-exported `backend` module (`provider::lettermint::backend`) to name the right type without pinning a version yourself; it resolves to reqwest 0.13 by default, or 0.12 with the `lettermint-reqwest-012` feature.
 
 ```rust,ignore
-use polymail::provider::lettermint::LettermintMailer;
+use polymail::provider::lettermint::{LettermintMailer, backend};
 
-let http = reqwest::Client::builder()
+let http = backend::Client::builder()
     .timeout(std::time::Duration::from_secs(60))
     .build()
     .unwrap();
@@ -216,15 +216,23 @@ fn get_mailer() -> Box<dyn Mailer> {
 
 | Feature | Default | Description |
 |---------|---------|-------------|
-| `lettermint` | yes | Lettermint provider |
+| `lettermint-reqwest-013` | yes | Lettermint provider on reqwest 0.13 (rustls) |
+| `lettermint-reqwest-012` | no | Lettermint provider on reqwest 0.12 (rustls) |
+| `lettermint` | no | Lettermint provider without a reqwest backend (pick one of the two above) |
 | `postmark` | no | Postmark provider |
 | `sendgrid` | no | SendGrid provider |
 | `smtp` | no | SMTP provider (any server, via lettre) |
 
+The two Lettermint backends are mutually exclusive; enabling both is a compile error. To use reqwest 0.12, disable defaults:
+
+```toml
+polymail = { version = "0.1", default-features = false, features = ["lettermint-reqwest-012"] }
+```
+
 Enable multiple providers at once:
 
 ```toml
-polymail = { version = "0.1", features = ["lettermint", "postmark"] }
+polymail = { version = "0.1", features = ["postmark"] }
 ```
 
 ## Provider capabilities
