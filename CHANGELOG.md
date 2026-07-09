@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.6] - 2026-07-09
+
+### Added
+- `config` feature: deserializable `ProviderConfig` for TOML/env-driven setup
+- `FallbackMailer::from_configs` builds a fallback chain from configs
+
 ## [0.1.5] - 2026-07-05
 
 ### Added

@@ -15,12 +15,15 @@ use crate::mailer::{Mailer, SendResult};
 
 /// Transport security for the SMTP connection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "config", derive(serde::Deserialize, Default))]
+#[cfg_attr(feature = "config", serde(rename_all = "snake_case"))]
 pub enum SmtpTls {
     /// Plaintext, no encryption (e.g. mailcrab on 1025).
     None,
     /// Connect plaintext then upgrade via STARTTLS (typically port 587).
     StartTls,
     /// TLS from the first byte (typically port 465).
+    #[cfg_attr(feature = "config", default)]
     Implicit,
 }
 

@@ -31,6 +31,19 @@ impl FallbackMailer {
     pub fn new(providers: Vec<Box<dyn Mailer>>) -> Self {
         Self { providers }
     }
+
+    /// Build a fallback chain from a sequence of [`ProviderConfig`](crate::ProviderConfig),
+    /// tried in the order given. Fails on the first config that can't be built.
+    #[cfg(feature = "config")]
+    pub fn from_configs(
+        configs: impl IntoIterator<Item = crate::config::ProviderConfig>,
+    ) -> Result<Self, SendError> {
+        let providers = configs
+            .into_iter()
+            .map(crate::config::ProviderConfig::build)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Self::new(providers))
+    }
 }
 
 #[async_trait]

@@ -1,6 +1,6 @@
 [package]
 name = "polymail"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Unified email sending interface for multiple providers"
@@ -26,10 +26,15 @@ lettermint-reqwest-013 = ["lettermint", "lettermint/reqwest-rustls"]
 lettermint-reqwest-012 = ["lettermint", "lettermint/reqwest-012-rustls"]
 sendgrid = ["dep:sendgrid"]
 smtp = ["dep:lettre", "dep:base64"]
+# Deserializable `ProviderConfig` so apps can load their mail settings from
+# TOML/env (via serde) and build a mailer without hand-writing the provider
+# match. Only compiled-in providers appear as variants.
+config = ["dep:serde"]
 
 [dependencies]
 async-trait = "0.1"
 thiserror = "2.0"
+serde = { version = "1", features = ["derive"], optional = true }
 
 postmark = { version = "2.0", features = ["reqwest-rustls-tls"], optional = true }
 lettermint = { version = "0.3", default-features = false, optional = true }

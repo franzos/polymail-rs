@@ -212,6 +212,59 @@ fn get_mailer() -> Box<dyn Mailer> {
 }
 ```
 
+### Config-driven setup
+
+Most apps compile in several providers but let the operator pick one at runtime. The `config` feature adds `ProviderConfig`, a `serde`-deserializable schema you embed in your own config (loaded from env, TOML, wherever). Polymail doesn't read env or files itself; you deserialize, then call `build()`.
+
+```toml
+polymail = { version = "0.1", features = ["config", "postmark", "smtp"] }
+```
+
+A single provider is one table, internally tagged on `provider`:
+
+```toml
+[mail]
+provider = "lettermint"
+token = "your-api-token"
+```
+
+```rust,ignore
+use polymail::{ProviderConfig, Mailer};
+
+// `cfg` came from your app's own config loading (figment, config, serde, ...).
+let cfg: ProviderConfig = /* ... */;
+let mailer: Box<dyn Mailer> = cfg.build()?;
+```
+
+Per provider, the keys are: `lettermint` → `token`; `postmark` → `token`; `sendgrid` → `api_key`; `smtp` → `host`, optional `port` (defaults to 465 for `implicit`, 587 for `start_tls`), `tls` (`implicit` (default) / `start_tls` / `none`), optional `user` / `pass`.
+
+Only providers you compiled in are valid variants. A config naming one you left out fails to deserialize with an "unknown variant" error listing the ones that are available.
+
+For the exotic fallback case, it's the same type in a list. `FallbackMailer::from_configs` builds the chain in order:
+
+```toml
+[[mail]]
+provider = "lettermint"
+token = "your-api-token"
+
+[[mail]]
+provider = "smtp"
+host = "smtp.example.com"
+port = 587
+tls = "start_tls"
+user = "user"
+pass = "pass"
+```
+
+```rust,ignore
+use polymail::{FallbackMailer, ProviderConfig};
+
+// `configs: Vec<ProviderConfig>` from your loader.
+let mailer = FallbackMailer::from_configs(configs)?;
+```
+
+Note: building an SMTP mailer (directly or via config) sets up a lettre connection pool and must run inside a Tokio runtime.
+
 ## Features
 
 | Feature | Default | Description |
@@ -222,6 +275,7 @@ fn get_mailer() -> Box<dyn Mailer> {
 | `postmark` | no | Postmark provider |
 | `sendgrid` | no | SendGrid provider |
 | `smtp` | no | SMTP provider (any server, via lettre) |
+| `config` | no | Deserializable `ProviderConfig` for TOML/env-driven setup (pulls in serde) |
 
 The two Lettermint backends are mutually exclusive; enabling both is a compile error. To use reqwest 0.12, disable defaults:
 
@@ -287,8 +341,11 @@ match mailer.send(&email).await {
 
 ## Testing
 
+The two Lettermint backends are mutually exclusive, so `--all-features` won't compile; test one backend at a time, alongside the other providers and `config`:
+
 ```sh
-cargo test --all-features
+cargo test --no-default-features --features lettermint-reqwest-013,postmark,sendgrid,smtp,config
+cargo test --no-default-features --features lettermint-reqwest-012,postmark,sendgrid,smtp,config
 ```
 
 The SMTP provider also has integration tests that send through a real SMTP
