@@ -37,6 +37,19 @@ pub enum ProviderConfig {
     #[cfg(feature = "sendgrid")]
     Sendgrid { api_key: String },
 
+    #[cfg(feature = "ses")]
+    Ses {
+        region: String,
+        /// Static keys; when both are omitted, credentials come from the AWS
+        /// default chain (env, profile, SSO, web identity, ECS, IMDS).
+        #[serde(default)]
+        access_key_id: Option<String>,
+        #[serde(default)]
+        secret_access_key: Option<String>,
+        #[serde(default)]
+        configuration_set: Option<String>,
+    },
+
     #[cfg(feature = "smtp")]
     Smtp {
         host: String,
@@ -69,6 +82,28 @@ impl ProviderConfig {
             ProviderConfig::Sendgrid { api_key } => Ok(Box::new(
                 crate::provider::sendgrid::SendgridMailer::new(api_key),
             )),
+            #[cfg(feature = "ses")]
+            ProviderConfig::Ses {
+                region,
+                access_key_id,
+                secret_access_key,
+                configuration_set,
+            } => {
+                use crate::provider::ses::SesMailer;
+                let mut m = match (access_key_id, secret_access_key) {
+                    (Some(id), Some(secret)) => SesMailer::new(region, id, secret),
+                    (None, None) => SesMailer::with_default_credentials(region),
+                    _ => {
+                        return Err(SendError::Authentication(
+                            "ses: access_key_id and secret_access_key must be set together".into(),
+                        ));
+                    }
+                };
+                if let Some(cs) = configuration_set {
+                    m = m.configuration_set(cs);
+                }
+                Ok(Box::new(m))
+            }
             #[cfg(feature = "smtp")]
             ProviderConfig::Smtp {
                 host,

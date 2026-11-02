@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.7] - 2026-11-02
+
+### Added
+- Amazon SES provider (`ses` feature) via the SESv2 API
+- `ses` variant in `ProviderConfig`
+
 ## [0.1.6] - 2026-07-09
 
 ### Added

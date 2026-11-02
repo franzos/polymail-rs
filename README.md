@@ -6,7 +6,7 @@
 
 Unified email sending interface for Rust. Write your email once, send it through any supported provider — swap providers by changing one line.
 
-Currently supported: [Lettermint](https://lettermint.co), [Postmark](https://postmarkapp.com), [SendGrid](https://sendgrid.com), and any SMTP server (via [lettre](https://github.com/lettre/lettre)).
+Currently supported: [Lettermint](https://lettermint.co), [Postmark](https://postmarkapp.com), [SendGrid](https://sendgrid.com), [Amazon SES](https://aws.amazon.com/ses/), and any SMTP server (via [lettre](https://github.com/lettre/lettre)).
 
 ## Usage
 
@@ -161,6 +161,31 @@ async fn send_smtp() {
 
 For custom trust roots, pool tuning, or alternate auth mechanisms, build a `lettre` `AsyncSmtpTransport` yourself and pass it to `SmtpMailer::with_transport`.
 
+### Amazon SES
+
+The `ses` feature sends through the SESv2 `SendEmail` API with the official AWS SDK. The message goes out as raw MIME, so attachments, inline images and custom headers behave the same as SMTP, and SES's message ID comes back in `SendResult`.
+
+```rust,ignore
+use polymail::provider::ses::SesMailer;
+
+// Region and credentials from the AWS default chain:
+// env, profile, SSO, web identity (EKS), ECS task role, EC2 instance profile.
+let mailer = SesMailer::from_env().await;
+
+// Fixed region, credentials still from the default chain (no async needed):
+let mailer = SesMailer::with_default_credentials("eu-central-1");
+
+// Static access keys:
+let mailer = SesMailer::new("eu-central-1", "AKIA...", "secret")
+    .configuration_set("tracking");
+```
+
+For retries, timeouts, a custom endpoint or anything else the SDK exposes, build an `aws_sdk_sesv2::Client` yourself and pass it to `SesMailer::with_client`. The SDK already retries throttling and 5xx responses before polymail sees an error.
+
+`metadata` becomes SES message tags (SES only allows ASCII letters, digits, `_` and `-` in tag names and values, up to 256 characters, and rejects the send otherwise). `tags` has no SES equivalent and is dropped.
+
+The feature pulls in the AWS SDK and `aws-lc-rs`, which compiles C code, so building it needs a C compiler.
+
 ### Fallback across providers
 
 `FallbackMailer` tries providers in order. On transient failures (network issues, rate limits, service outages), it moves to the next provider. On permanent failures (invalid address, hard bounce), it returns immediately — retrying won't help.
@@ -236,7 +261,7 @@ let cfg: ProviderConfig = /* ... */;
 let mailer: Box<dyn Mailer> = cfg.build()?;
 ```
 
-Per provider, the keys are: `lettermint` → `token`; `postmark` → `token`; `sendgrid` → `api_key`; `smtp` → `host`, optional `port` (defaults to 465 for `implicit`, 587 for `start_tls`), `tls` (`implicit` (default) / `start_tls` / `none`), optional `user` / `pass`.
+Per provider, the keys are: `lettermint` → `token`; `postmark` → `token`; `sendgrid` → `api_key`; `ses` → `region`, optional `access_key_id` / `secret_access_key` (both or neither; without them, the AWS default credential chain), optional `configuration_set`; `smtp` → `host`, optional `port` (defaults to 465 for `implicit`, 587 for `start_tls`), `tls` (`implicit` (default) / `start_tls` / `none`), optional `user` / `pass`.
 
 Only providers you compiled in are valid variants. A config naming one you left out fails to deserialize with an "unknown variant" error listing the ones that are available.
 
@@ -275,6 +300,7 @@ Note: building an SMTP mailer (directly or via config) sets up a lettre connecti
 | `postmark` | no | Postmark provider |
 | `sendgrid` | no | SendGrid provider |
 | `smtp` | no | SMTP provider (any server, via lettre) |
+| `ses` | no | Amazon SES provider (SESv2 API, via the AWS SDK) |
 | `config` | no | Deserializable `ProviderConfig` for TOML/env-driven setup (pulls in serde) |
 
 The two Lettermint backends are mutually exclusive; enabling both is a compile error. To use reqwest 0.12, disable defaults:
@@ -291,16 +317,16 @@ polymail = { version = "0.1", features = ["postmark"] }
 
 ## Provider capabilities
 
-| Capability | Lettermint | Postmark | SendGrid | SMTP |
-|---|---|---|---|---|
-| Single send | yes | yes | yes | yes |
-| Batch send (native) | yes (up to 500) | yes (up to 500) | no (sequential fallback) | no (sequential fallback) |
-| Attachments | yes | yes | yes | yes |
-| Inline attachments | yes | yes | yes | yes |
-| Custom headers | yes | yes | yes (per-personalization) | yes |
-| Multiple reply-to | yes | first only | first only | first only |
-| Tags | first tag | first tag | multiple (categories) | - |
-| Metadata | yes | yes | yes (as custom args) | - |
+| Capability | Lettermint | Postmark | SendGrid | SES | SMTP |
+|---|---|---|---|---|---|
+| Single send | yes | yes | yes | yes | yes |
+| Batch send (native) | yes (up to 500) | yes (up to 500) | no (sequential fallback) | no (sequential fallback) | no (sequential fallback) |
+| Attachments | yes | yes | yes | yes | yes |
+| Inline attachments | yes | yes | yes | yes | yes |
+| Custom headers | yes | yes | yes (per-personalization) | yes | yes |
+| Multiple reply-to | yes | first only | first only | first only | first only |
+| Tags | first tag | first tag | multiple (categories) | - | - |
+| Metadata | yes | yes | yes (as custom args) | yes (as message tags) | - |
 
 SMTP has no side channel for tags or metadata: anything added would become recipient-visible headers logged by every relay in between, so both are dropped. Explicit `.header(...)` values are still sent.
 
@@ -326,26 +352,26 @@ match mailer.send(&email).await {
 
 ### Error mapping by provider
 
-| `SendError` | Postmark | Lettermint | SendGrid | SMTP |
-|---|---|---|---|---|
-| `Authentication` | — | HTTP 401/403 | HTTP 401/403 | reply 535/530/534/538/454 |
-| `InvalidAddress` | error code 300 | HTTP 422 (validation) | HTTP 400 | local address parse failure |
-| `InactiveRecipient` | error code 406 | batch status | — | — |
-| `SpamComplaint` | error code 409 | batch status | — | — |
-| `HardBounce` | error code 422 | batch status | — | reply 550/551/553 |
-| `RateLimitExceeded` | error code 429 | HTTP 429 | HTTP 429 | — |
-| `ServiceUnavailable` | error codes 500–504 | HTTP 5xx | HTTP 500–504 | other 4xx replies |
-| `Provider` | transport errors | transport/parse errors | transport/parse errors | connection/TLS/timeout |
-| `Api` | other error codes | other HTTP errors | other HTTP errors | other 5xx replies |
-| `Serialization` | — | — | — | bad base64 / invalid header name |
+| `SendError` | Postmark | Lettermint | SendGrid | SES | SMTP |
+|---|---|---|---|---|---|
+| `Authentication` | — | HTTP 401/403 | HTTP 401/403 | HTTP 401/403 | reply 535/530/534/538/454 |
+| `InvalidAddress` | error code 300 | HTTP 422 (validation) | HTTP 400 | `BadRequestException`, local address parse failure | local address parse failure |
+| `InactiveRecipient` | error code 406 | batch status | — | — | — |
+| `SpamComplaint` | error code 409 | batch status | — | — | — |
+| `HardBounce` | error code 422 | batch status | — | — | reply 550/551/553 |
+| `RateLimitExceeded` | error code 429 | HTTP 429 | HTTP 429 | `TooManyRequestsException`, `LimitExceededException` (quota) | — |
+| `ServiceUnavailable` | error codes 500–504 | HTTP 5xx | HTTP 500–504 | HTTP 5xx, account suspended, sending paused | other 4xx replies |
+| `Provider` | transport errors | transport/parse errors | transport/parse errors | transport/credential errors | connection/TLS/timeout |
+| `Api` | other error codes | other HTTP errors | other HTTP errors | `MessageRejected`, unverified MAIL FROM, unknown configuration set, other HTTP errors | other 5xx replies |
+| `Serialization` | — | — | — | bad base64 / invalid header name | bad base64 / invalid header name |
 
 ## Testing
 
 The two Lettermint backends are mutually exclusive, so `--all-features` won't compile; test one backend at a time, alongside the other providers and `config`:
 
 ```sh
-cargo test --no-default-features --features lettermint-reqwest-013,postmark,sendgrid,smtp,config
-cargo test --no-default-features --features lettermint-reqwest-012,postmark,sendgrid,smtp,config
+cargo test --no-default-features --features lettermint-reqwest-013,postmark,sendgrid,smtp,ses,config
+cargo test --no-default-features --features lettermint-reqwest-012,postmark,sendgrid,smtp,ses,config
 ```
 
 The SMTP provider also has integration tests that send through a real SMTP
@@ -360,6 +386,13 @@ cargo test --features smtp -- --ignored
 
 Override the defaults with `POLYMAIL_SMTP_HOST` / `POLYMAIL_SMTP_PORT` (SMTP) and
 `POLYMAIL_MAILCRAB_API` (mailcrab HTTP API base) if the server is elsewhere.
+
+The SES unit tests run against a captured HTTP client, with no AWS account needed. One `#[ignore]`-d test sends a real email; it needs credentials in the AWS default chain plus `POLYMAIL_SES_FROM` / `POLYMAIL_SES_TO` (both verified identities while the account is in the SES sandbox):
+
+```sh
+POLYMAIL_SES_FROM=sender@example.com POLYMAIL_SES_TO=you@example.com \
+  cargo test --features ses --test ses_integration -- --ignored
+```
 
 ## License
 

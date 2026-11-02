@@ -4,6 +4,8 @@ mod email;
 mod error;
 mod fallback;
 mod mailer;
+#[cfg(any(feature = "smtp", feature = "ses"))]
+mod mime;
 pub mod provider;
 
 #[cfg(feature = "config")]

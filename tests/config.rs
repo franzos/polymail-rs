@@ -56,6 +56,41 @@ async fn smtp_tls_defaults_to_implicit() {
     cfg.build().unwrap();
 }
 
+#[cfg(feature = "ses")]
+#[test]
+fn ses_static_keys_deserialize_and_build() {
+    let cfg: ProviderConfig = serde_json::from_value(json!({
+        "provider": "ses",
+        "region": "eu-central-1",
+        "access_key_id": "AKID",
+        "secret_access_key": "secret",
+        "configuration_set": "tracking",
+    }))
+    .unwrap();
+    cfg.build().unwrap();
+}
+
+#[cfg(feature = "ses")]
+#[test]
+fn ses_without_keys_uses_default_chain() {
+    let cfg: ProviderConfig =
+        serde_json::from_value(json!({ "provider": "ses", "region": "eu-central-1" })).unwrap();
+    cfg.build().unwrap();
+}
+
+#[cfg(feature = "ses")]
+#[test]
+fn ses_half_keys_are_rejected() {
+    let cfg: ProviderConfig = serde_json::from_value(
+        json!({ "provider": "ses", "region": "eu-central-1", "access_key_id": "AKID" }),
+    )
+    .unwrap();
+    assert!(matches!(
+        cfg.build(),
+        Err(polymail::SendError::Authentication(_))
+    ));
+}
+
 #[test]
 fn unknown_provider_is_rejected() {
     let err = serde_json::from_value::<ProviderConfig>(
